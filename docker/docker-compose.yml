@@ -55,6 +55,8 @@ services:
       DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
       # Empty by default (see entrypoint.sh). Do NOT disable windows.media.mediacontrol on Wine 10.20.
       WINEDLLOVERRIDES_RUN: "${WINEDLLOVERRIDES_RUN:-}"
+      # Debug hook: WINEDEBUG_OVERRIDE=+winepulse,+mmdevapi ./run.sh -d to trace audio, etc.
+      WINEDEBUG: "${WINEDEBUG_OVERRIDE:-fixme-all}"
 
     volumes:
       # X display socket (Xwayland on this host).

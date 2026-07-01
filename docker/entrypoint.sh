@@ -47,8 +47,10 @@ install_roon() {
   wineserver -w
 
   # Minimal Wine settings that still matter for Roon (ported from ../install.sh).
+  # NOTE: sound=pulse (not alsa as the host script uses) — in the container there's
+  # no ALSA hardware; audio is routed to the host PipeWire-Pulse socket (PULSE_SERVER).
   echo "[entrypoint] Applying winetricks settings…"
-  winetricks -q win10 ddr=opengl sound=alsa nocrashdialog || true
+  winetricks -q win10 ddr=opengl sound=pulse nocrashdialog || true
 
   # --- Optional legacy .NET (Roon bundles its own; enable only if it complains) ---
   # winetricks -q dotnet7
