@@ -1,0 +1,69 @@
+# Roon desktop GUI on version-pinned Wine.
+#
+#   cp .env.example .env      # then edit MUSIC_DIR
+#   ./run.sh                  # builds on first use, installs Roon, launches it
+#
+# Requires host networking (Roon discovery/RAAT + networked endpoints), the host
+# X socket, GPU (/dev/dri), and the PipeWire-Pulse socket for local audio.
+
+services:
+  roon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: "${HOST_UID:-1000}"
+        GID: "${HOST_GID:-1000}"
+        WINE_BRANCH: "${WINE_BRANCH:-stable}"
+        WINE_VERSION: "${WINE_VERSION:-10.0.0.0~bookworm-1}"
+    # Note: image tags can't contain '~', so the exact Wine version lives in the
+    # build args above, not the tag.
+    image: roon-on-wine:local
+    container_name: roon-on-wine
+
+    # Roon uses broadcast discovery + RAAT across many ports; host networking is
+    # the least-friction way to reach networked endpoints and be discovered.
+    network_mode: host
+
+    # Share the host IPC namespace so the X MIT-SHM extension works. Without this,
+    # X_ShmPutImage fails with BadValue and aborts Wine mid-render (kills wineboot,
+    # blank/failed Roon window).
+    ipc: host
+
+    # Run a real init (tini) as PID 1 to reap zombies. Wine's "start.exe" launcher
+    # doesn't wait on orphaned children, so the throwaway Roon instance that a
+    # roon:// login forward spawns (and roon-open kills) would linger as a defunct
+    # process without this.
+    init: true
+
+    # GPU for OpenGL rendering.
+    devices:
+      - "/dev/dri:/dev/dri"
+    # Numeric GIDs of the host's render/video groups so /dev/dri is accessible.
+    group_add:
+      - "${RENDER_GID:-987}"
+      - "${VIDEO_GID:-983}"
+
+    environment:
+      DISPLAY: "${DISPLAY:-:0}"
+      # X cookie (copied to a stable path by run.sh, mounted below).
+      XAUTHORITY: "/tmp/.Xauthority"
+      # Local audio -> host PipeWire-Pulse socket (see volume below).
+      PULSE_SERVER: "unix:/run/user/${HOST_UID:-1000}/pulse/native"
+      SCALEFACTOR: "${SCALEFACTOR:-1.0}"
+      # .NET invariant globalization — avoids Wine's incomplete icu.dll aborting Roon.
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
+      # Empty by default (see entrypoint.sh). Do NOT disable windows.media.mediacontrol on Wine 10.20.
+      WINEDLLOVERRIDES_RUN: "${WINEDLLOVERRIDES_RUN:-}"
+
+    volumes:
+      # X display socket (Xwayland on this host).
+      - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+      # X auth cookie — run.sh copies the live cookie to docker/.xauth and exports XAUTH_HOST.
+      - "${XAUTH_HOST:-/dev/null}:/tmp/.Xauthority:ro"
+      # Local audio output socket.
+      - "/run/user/${HOST_UID:-1000}/pulse/native:/run/user/${HOST_UID:-1000}/pulse/native"
+      # Persistent Wine prefix — the fresh Roon install lands here and survives rebuilds.
+      - "./prefix:/prefix"
+      # Local music library (read-only watched folder inside Roon). Set MUSIC_DIR in .env.
+      - "${MUSIC_DIR:-/dev/null}:/music:ro"

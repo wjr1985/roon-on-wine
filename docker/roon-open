@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Deliver a URL (a roon://login?code=... callback from the host browser) to the
+# RUNNING Roon instance inside this container.
+#
+# Roon's single-instance forwarding doesn't work under Wine: launching Roon.exe
+# with the URL *does* hand the arg to the already-running instance (which then
+# completes login), but it ALSO spawns a throwaway duplicate that boots and
+# lingers. So we forward, wait for the hand-off, then reap the duplicate.
+#
+# Reap safety: match only real Roon.exe processes with `pgrep -x` (exact process
+# name) — `pgrep -f Roon.exe` would also match the "start.exe /exec ...Roon.exe"
+# launcher that is the container's main process, and killing that stops Roon.
+#
+set -u
+export WINEPREFIX="${WINEPREFIX:-/prefix}"
+export WINEARCH="${WINEARCH:-win64}"
+export WINEDEBUG="${WINEDEBUG:--all}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$(id -u)}"
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-/tmp/.Xauthority}"
+
+url="${1:-}"
+[ -z "$url" ] && { echo "usage: roon-open <url>" >&2; exit 2; }
+
+exe="$(find "$WINEPREFIX/drive_c/users" -path '*Roon/Application/Roon.exe' 2>/dev/null | head -1)"
+[ -z "$exe" ] && { echo "roon-open: Roon.exe not found (is Roon installed/running?)" >&2; exit 1; }
+
+# Real Roon.exe instances that exist *before* we forward.
+before="$(pgrep -x Roon.exe | sort -n)"
+
+wine "$exe" "$url" >/tmp/roon-open.log 2>&1 &
+
+# Give Roon time to receive the arg and complete login, then reap any NEW real
+# Roon.exe instance (the duplicate the forward spawned). The pre-existing
+# instance(s) — including the container's main — are left alone.
+sleep 20
+for p in $(pgrep -x Roon.exe); do
+  printf '%s\n' "$before" | grep -qx "$p" || kill "$p" 2>/dev/null || true
+done
