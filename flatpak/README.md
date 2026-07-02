@@ -53,38 +53,17 @@ flatpak run io.github.wjr1985.RoonOnWine
   that Wine spawns as a side effect is reaped ~20 s later. One-time: login
   persists in the prefix.
 - Everything (prefix, login) lives in `~/.var/app/io.github.wjr1985.RoonOnWine/data/`.
-
-## Local audio zone (bundled native Roon Bridge)
-
-Wine's RAATServer can never be discovered by a Roon Core — its SOOD discovery
-responder misroutes replies out the loopback interface — so Roon's "This PC"
-zone is impossible under Wine (in any packaging). Instead, on launch this
-flatpak downloads (one-time) and runs **Roon's native Linux Bridge** alongside
-the GUI. Your Core discovers it like any networked endpoint, and this machine's
-ALSA devices appear as a zone named after the machine.
-
-- Disable per-run with `--env=ROON_BRIDGE=0`, or persistently via
-  `flatpak override --user --env=ROON_BRIDGE=0 io.github.wjr1985.RoonOnWine`.
-- Bridge log: `~/.var/app/io.github.wjr1985.RoonOnWine/data/roonbridge.log`.
-- Note: Roon on Linux plays to ALSA **hardware** devices (exclusive access
-  while playing) — desktop audio and Roon playback can contend for the device.
-- Zone without the GUI open: run the bridge headless via a systemd user unit:
-
-  ```ini
-  # ~/.config/systemd/user/roon-bridge.service
-  [Unit]
-  Description=Roon Bridge (flatpak, headless local audio zone)
-
-  [Service]
-  ExecStart=flatpak run --command=roon-launcher io.github.wjr1985.RoonOnWine bridge
-  Restart=on-failure
-
-  [Install]
-  WantedBy=default.target
-  ```
-
-  `systemctl --user enable --now roon-bridge`. The GUI and the headless bridge
-  coordinate via a lock file — whichever starts second skips the bridge.
+- **Local audio**: this machine's outputs appear under **"This PC"** in
+  Settings → Audio (Wine's RAATServer → PulseAudio → PipeWire, so playback
+  coexists with desktop audio — no exclusive device lock). The zone exists
+  while Roon is running.
+- **If "This PC" (or any RAAT device) never appears in Settings → Audio,
+  restart Roon Server on the Core.** A Core's RAAT discovery can silently
+  wedge — it stops sending discovery queries and ignores endpoint
+  announcements until restarted. (Diagnosed the hard way; a wedged Core
+  answers other SOOD queries, so everything *looks* healthy. Telltale sign:
+  no RAAT/Roon Ready devices at all in the zone list, only
+  Cast/AirPlay/Sonos.)
 
 ## Knobs & debugging
 
