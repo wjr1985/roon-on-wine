@@ -24,10 +24,13 @@ export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 # Invariant globalization makes .NET skip ICU entirely.
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 SCALEFACTOR="${SCALEFACTOR:-1.0}"
-# DLL overrides used when *launching* Roon. Empty by default: on Wine 10 the
-# builtin windows.media.mediacontrol works, and DISABLING it (as older Wine
-# setups did) makes Roon's now-playing reset access-violate.
-RUN_OVERRIDES="${WINEDLLOVERRIDES_RUN:-}"
+# DLL overrides used when *launching* Roon. Default: DISABLE
+# windows.media.mediacontrol — on Wine 10.0 STABLE its WinRT surface is missing
+# Windows.Storage.Streams.RandomAccessStreamReference, so Roon fatally crashes
+# (0xC0000005 in WinPlatformNowPlaying.roon_mediacontrols_update_image) the
+# first time it pushes now-playing artwork during playback. (The old "keep it
+# enabled" advice was calibrated on Wine 10.20-staging, which has more WinRT.)
+RUN_OVERRIDES="${WINEDLLOVERRIDES_RUN:-windows.media.mediacontrol=}"
 
 ROON_URL="http://download.roonlabs.com/builds/RoonInstaller64.exe"
 FIFO="$XDG_DATA_HOME/roon-url.fifo"
@@ -45,13 +48,19 @@ install_roon() {
   WINEDLLOVERRIDES="mscoree=,mshtml=" wineboot --init
   wineserver -w
 
-  # Registry equivalents of the docker image's
-  #   winetricks -q win10 ddr=opengl sound=pulse nocrashdialog
-  # (all four are pure-registry verbs; doing them directly avoids bundling
-  # winetricks and its cabextract dependency in the flatpak).
+  # Registry equivalents of winetricks: win10 ddr=opengl sound=alsa nocrashdialog
+  # (all pure-registry verbs; doing them directly avoids bundling winetricks).
+  #
+  # Audio=alsa, NOT pulse: winepulse's WASAPI backend reports NO supported
+  # formats to Roon's RAAT output plugin (every zone setup fails with
+  # RAAT__OUTPUT_PLUGIN_STATUS_FORMAT_NOT_SUPPORTED, shared and exclusive
+  # alike). winealsa negotiates fine, and inside the flatpak ALSA routes to
+  # PipeWire via the runtime's pulse plugin anyway — same destination, working
+  # format negotiation. (This is presumably why upstream's host script always
+  # used sound=alsa.)
   echo "[roon-launcher] Applying Wine settings…"
   wine reg add 'HKCU\Software\Wine\Direct3D' /v DirectDrawRenderer /t REG_SZ /d opengl /f
-  wine reg add 'HKCU\Software\Wine\Drivers' /v Audio /t REG_SZ /d pulse /f
+  wine reg add 'HKCU\Software\Wine\Drivers' /v Audio /t REG_SZ /d alsa /f
   wine reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f
   wine winecfg -v win10
   wineserver -w

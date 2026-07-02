@@ -54,8 +54,9 @@ flatpak run io.github.wjr1985.RoonOnWine
   persists in the prefix.
 - Everything (prefix, login) lives in `~/.var/app/io.github.wjr1985.RoonOnWine/data/`.
 - **Local audio**: this machine's outputs appear under **"This PC"** in
-  Settings → Audio (Wine's RAATServer → PulseAudio → PipeWire, so playback
-  coexists with desktop audio — no exclusive device lock). The zone exists
+  Settings → Audio (Wine's RAATServer → winealsa → PipeWire). Enable the
+  analog output there, and in the zone's **Device Setup set Volume Control to
+  "DSP Volume"** (Wine doesn't wire up the device mixer). The zone exists
   while Roon is running.
 - **If "This PC" (or any RAAT device) never appears in Settings → Audio,
   restart Roon Server on the Core.** A Core's RAAT discovery can silently
@@ -94,7 +95,12 @@ flatpak uninstall --user --delete-data io.github.wjr1985.RoonOnWine
   renders a washed-out UI. Only 10.0 stable avoids both.
 - **`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`**: Roon bundles its own .NET;
   Wine's incomplete `icu.dll` aborts it otherwise.
-- **`windows.media.mediacontrol` stays enabled**: disabling it (as old Wine
-  setups did) makes Roon's now-playing reset crash on Wine 10.
-- **`sound=pulse`** registry setting: audio goes out the pulseaudio socket
-  (PipeWire-Pulse on the host).
+- **`windows.media.mediacontrol` is DISABLED at launch**: Wine 10.0 stable's
+  WinRT lacks `Windows.Storage.Streams.RandomAccessStreamReference`, so with
+  the DLL enabled Roon crashes (0xC0000005) the first time it pushes
+  now-playing artwork during playback. (Old advice said the opposite — that
+  was true on Wine 10.20-staging, which has more WinRT.)
+- **`sound=alsa`** (not pulse): winepulse's WASAPI backend reports zero
+  supported formats to Roon's RAAT output — playback fails instantly with
+  `FORMAT_NOT_SUPPORTED` on every zone. winealsa negotiates correctly and
+  still reaches PipeWire via the runtime's ALSA→pulse plugin.
