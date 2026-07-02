@@ -33,6 +33,65 @@ ROON_URL="http://download.roonlabs.com/builds/RoonInstaller64.exe"
 FIFO="$XDG_DATA_HOME/roon-url.fifo"
 LOCK="$XDG_DATA_HOME/roon-primary.lock"
 
+# --- Native Roon Bridge (local audio zone) ---
+# Wine's RAATServer can never be discovered by a Roon Core: its SOOD discovery
+# responder misroutes replies out the loopback interface (Wine UDP multi-socket
+# semantics), so "This PC" zones are impossible under Wine. Instead we bundle
+# Roon's native Linux Bridge: its RAATServer answers discovery correctly and
+# exposes this machine's ALSA devices as a normal networked zone.
+# Disable with ROON_BRIDGE=0.
+BRIDGE_URL="https://download.roonlabs.com/builds/RoonBridge_linuxx64.tar.bz2"
+BRIDGE_DIR="$XDG_DATA_HOME/RoonBridge"
+BRIDGE_DATA="$XDG_DATA_HOME/roonbridge-data"
+BRIDGE_LOCK="$XDG_DATA_HOME/roon-bridge.lock"
+BRIDGE_LOG="$XDG_DATA_HOME/roonbridge.log"
+
+ensure_bridge() {
+  [ -x "$BRIDGE_DIR/start.sh" ] && return 0
+  echo "[roon-launcher] Downloading Roon Bridge (native local-audio endpoint, one-time)…"
+  local tmp; tmp="$(mktemp -d)"
+  if ! wget -q -O "$tmp/bridge.tar.bz2" "$BRIDGE_URL"; then
+    rm -rf "$tmp"; return 1
+  fi
+  tar -xjf "$tmp/bridge.tar.bz2" -C "$XDG_DATA_HOME"
+  rm -rf "$tmp"
+  [ -x "$BRIDGE_DIR/start.sh" ]
+}
+
+# Start the bridge in the background (used by 'run' mode). Holds fd 8 on the
+# bridge lock for our lifetime so a standalone 'bridge' instance and a GUI
+# instance never double-start it. No explicit cleanup needed: when the
+# launcher exits, the sandbox's PID namespace tears everything down.
+start_bridge() {
+  exec 8>"$BRIDGE_LOCK"
+  if ! flock -n 8; then
+    echo "[roon-launcher] Roon Bridge already running (another instance); skipping."
+    return 0
+  fi
+  if ! ensure_bridge; then
+    echo "[roon-launcher] WARNING: Roon Bridge unavailable — no local audio zone this session." >&2
+    return 0
+  fi
+  mkdir -p "$BRIDGE_DATA"
+  echo "[roon-launcher] Starting Roon Bridge (local audio zone)…"
+  ROON_DATAROOT="$BRIDGE_DATA" ROON_ID_DIR="$BRIDGE_DATA" \
+    "$BRIDGE_DIR/start.sh" >>"$BRIDGE_LOG" 2>&1 &
+  # Wait for the bridge's RAATServer to own port 9200 before Roon starts:
+  # Roon.exe attaches to an existing RAATServer on 9200 instead of spawning
+  # its own (Wine) one, so "This PC" then rides the native, discoverable
+  # RAATServer. Losing the race would silently fall back to the Wine one.
+  local i
+  for i in $(seq 1 30); do
+    if (exec 3<>/dev/tcp/127.0.0.1/9200) 2>/dev/null; then
+      exec 3>&- 2>/dev/null || true
+      echo "[roon-launcher] Roon Bridge RAATServer is up."
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "[roon-launcher] WARNING: bridge RAATServer slow to start; Roon may use its own." >&2
+}
+
 roon_exe() {
   find "$WINEPREFIX/drive_c/users" \
     -path '*/AppData/Local/Roon/Application/Roon.exe' 2>/dev/null | head -1
@@ -154,6 +213,10 @@ case "$cmd" in
       exit 1
     fi
 
+    # Native Roon Bridge alongside the GUI — this is what gives the remote
+    # Core a playable zone for this machine's speakers.
+    [ "${ROON_BRIDGE:-1}" != "0" ] && start_bridge
+
     # We hold the lock, so any leftover FIFO is stale — recreate it.
     rm -f "$FIFO"
     mkfifo -m 600 "$FIFO"
@@ -170,6 +233,19 @@ case "$cmd" in
 
   install)
     install_roon
+    ;;
+  bridge)
+    # Standalone Roon Bridge (no GUI) — for a systemd user service so the
+    # zone exists even when Roon isn't open:
+    #   flatpak run --command=roon-launcher io.github.wjr1985.RoonOnWine bridge
+    exec 8>"$BRIDGE_LOCK"
+    if ! flock -n 8; then
+      echo "[roon-launcher] Roon Bridge already running; exiting." >&2
+      exit 1
+    fi
+    ensure_bridge || { echo "[roon-launcher] ERROR: Roon Bridge download failed." >&2; exit 1; }
+    mkdir -p "$BRIDGE_DATA"
+    exec env ROON_DATAROOT="$BRIDGE_DATA" ROON_ID_DIR="$BRIDGE_DATA" "$BRIDGE_DIR/start.sh"
     ;;
   winecfg)
     exec winecfg

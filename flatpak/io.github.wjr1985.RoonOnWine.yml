@@ -51,8 +51,9 @@ finish-args:
   # Local audio out through PipeWire-Pulse; pairs with the sound=pulse registry
   # setting applied on first run.
   - --socket=pulseaudio
-  # OpenGL rendering.
-  - --device=dri
+  # GPU for OpenGL rendering, plus /dev/snd for the bundled native Roon Bridge
+  # (its RAATServer enumerates ALSA hardware devices for the local audio zone).
+  - --device=all
   - --env=LD_LIBRARY_PATH=/app/lib:/app/lib/i386-linux-gnu
   - --env=WINEDEBUG=fixme-all
 
