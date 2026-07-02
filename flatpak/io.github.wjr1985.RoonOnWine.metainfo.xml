@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.wjr1985.RoonOnWine</id>
+  <name>Roon on Wine</name>
+  <summary>Roon desktop client via bundled Wine</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>Unofficial local packaging that runs the Roon Windows desktop client on a
+    version-pinned Wine 10.0. Downloads the Roon installer from roonlabs.com on
+    first run. Not affiliated with Roon Labs.</p>
+  </description>
+  <launchable type="desktop-id">io.github.wjr1985.RoonOnWine.desktop</launchable>
+</component>

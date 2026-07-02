@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Roon on Wine
+Comment=Roon desktop client (Windows app on bundled Wine 10.0)
+Exec=roon-launcher %u
+Icon=io.github.wjr1985.RoonOnWine
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=x-scheme-handler/roon;

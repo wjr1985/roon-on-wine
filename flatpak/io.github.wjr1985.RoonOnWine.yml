@@ -1,0 +1,104 @@
+# Roon desktop (Windows app) on a version-pinned Wine, as a Flatpak.
+#
+# Same idea as ../docker: freeze a known-good Wine 10.0 STABLE so host Wine
+# upgrades can't break Roon (Wine 11.x crashes in wminet_utils during Roon's
+# WMI drive scan; winehq-staging 10.x renders a washed-out UI).
+#
+# Flathub's org.winehq.Wine base app only ships Wine 9.0/11.0 branches, never
+# 10.0 — so this bundles the Kron4ek Wine-Builds 10.0 release, checksum-pinned.
+# It's the classic amd64 build (not wow64), so 32-bit support comes from the
+# freedesktop Compat.i386 + GL32 extensions, mounted at the same points the
+# WineHQ base app uses.
+#
+# Build (no sudo):
+#   flatpak run org.flatpak.Builder --user --install --force-clean \
+#       build io.github.wjr1985.RoonOnWine.yml
+
+app-id: io.github.wjr1985.RoonOnWine
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: roon-launcher
+separate-locales: false
+
+add-extensions:
+  org.freedesktop.Platform.Compat.i386:
+    directory: lib/i386-linux-gnu
+    version: '25.08'
+  org.freedesktop.Platform.GL32:
+    directory: lib/i386-linux-gnu/GL
+    version: '1.4'
+    versions: 25.08;25.08-extra;1.4
+    subdirectories: true
+    no-autodownload: true
+    autodelete: false
+    add-ld-path: lib
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;egl/egl_external_platform.d;OpenCL/vendors;lib/dri;lib/d3d;lib/gbm;vulkan/explicit_layer.d;vulkan/implicit_layer.d;vdpau
+    download-if: active-gl-driver
+    enable-if: active-gl-driver
+    autoprune-unless: active-gl-driver
+
+finish-args:
+  # Execute 32-bit binaries (seccomp allowance for Wine's i386 side).
+  - --allow=multiarch
+  # Host network namespace: Roon discovery + RAAT (like docker network_mode: host).
+  - --share=network
+  # X MIT-SHM — without shared IPC, X_ShmPutImage fails with BadValue and aborts
+  # Wine mid-render (the docker equivalent was ipc: host).
+  - --share=ipc
+  # Wine's X11 driver via Xwayland. Deliberately plain x11, not wayland/fallback.
+  - --socket=x11
+  # Local audio out through PipeWire-Pulse; pairs with the sound=pulse registry
+  # setting applied on first run.
+  - --socket=pulseaudio
+  # OpenGL rendering.
+  - --device=dri
+  - --env=LD_LIBRARY_PATH=/app/lib:/app/lib/i386-linux-gnu
+  - --env=WINEDEBUG=fixme-all
+
+modules:
+  - name: wine
+    buildsystem: simple
+    build-commands:
+      # Guard: expected relocatable layout (bin/ lib/ share/, with both arches
+      # under lib/wine/{i386,x86_64}-{unix,windows}). If Kron4ek ever changes
+      # the layout, fail loudly here instead of at runtime.
+      - test -x bin/wine
+      - test -d lib/wine/x86_64-unix
+      - cp -a bin lib share /app/
+    sources:
+      - type: archive
+        url: https://github.com/Kron4ek/Wine-Builds/releases/download/10.0/wine-10.0-amd64.tar.xz
+        sha256: a2b6ae3253736a13162c7c505f69b1c6076432c3ba64b54e1b923613ebdab698
+        strip-components: 1
+
+  - name: compat-setup
+    buildsystem: simple
+    build-commands:
+      # Extension mount points (explicit, matching add-extensions above).
+      - mkdir -p /app/lib/i386-linux-gnu/GL
+      # Loader search paths — flatpak includes /app/etc/ld.so.conf when building
+      # the sandbox ld cache (same wiring as the WineHQ base app).
+      - mkdir -p /app/etc
+      - printf '%s\n' /app/lib /app/lib/i386-linux-gnu > /app/etc/ld.so.conf
+
+  - name: roon-launcher
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 roon-launcher.sh /app/bin/roon-launcher
+      - install -Dm644 io.github.wjr1985.RoonOnWine.desktop /app/share/applications/io.github.wjr1985.RoonOnWine.desktop
+      - install -Dm644 io.github.wjr1985.RoonOnWine.metainfo.xml /app/share/metainfo/io.github.wjr1985.RoonOnWine.metainfo.xml
+      - install -Dm644 icons/16x16/roon-on-wine.png /app/share/icons/hicolor/16x16/apps/io.github.wjr1985.RoonOnWine.png
+      - install -Dm644 icons/32x32/roon-on-wine.png /app/share/icons/hicolor/32x32/apps/io.github.wjr1985.RoonOnWine.png
+      - install -Dm644 icons/48x48/roon-on-wine.png /app/share/icons/hicolor/48x48/apps/io.github.wjr1985.RoonOnWine.png
+      - install -Dm644 icons/256x256/roon-on-wine.png /app/share/icons/hicolor/256x256/apps/io.github.wjr1985.RoonOnWine.png
+    sources:
+      - type: file
+        path: roon-launcher.sh
+      - type: file
+        path: io.github.wjr1985.RoonOnWine.desktop
+      - type: file
+        path: io.github.wjr1985.RoonOnWine.metainfo.xml
+      - type: dir
+        path: ../icons
+        dest: icons
